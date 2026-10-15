@@ -5,11 +5,13 @@
 #include <format>
 #include <initializer_list>
 #include <iostream>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
 #include "Activation.hpp"
 #include "Architecture.hpp"
+#include "Loss.hpp"
 #include "Matrix.hpp"
 
 namespace nn
@@ -49,6 +51,14 @@ public:
     const Matrix& input() const { return as_[0]; }
     const Matrix& output() const { return as_[count_]; }
 
+    void set_hidden_activation(ActivationType type) noexcept { hidden_activation_ = type; }
+    void set_output_activation(ActivationType type) noexcept { output_activation_ = type; }
+    void set_loss(LossType type) noexcept { loss_ = type; }
+
+    ActivationType hidden_activation() const noexcept { return hidden_activation_; }
+    ActivationType output_activation() const noexcept { return output_activation_; }
+    LossType loss() const noexcept { return loss_; }
+
     void randomize(float low, float high)
     {
         for (size_type i = 0; i < count_; ++i)
@@ -75,14 +85,14 @@ public:
         {
             dot(as_[i + 1], as_[i], ws_[i]);
             sum(as_[i + 1], bs_[i]);
-            sigmoid(as_[i + 1]);
+            const ActivationType act = (i + 1 == count_) ? output_activation_ : hidden_activation_;
+            activation_forward(act, as_[i + 1]);
         }
     }
 
     [[nodiscard]] float cost(const Matrix& ti, const Matrix& to)
     {
-        assert(ti.rows() == to.rows());
-        assert(to.cols() == output().cols());
+        check_shapes(ti, to);
         size_type n = ti.rows();
 
         float c = 0.f;
@@ -92,12 +102,7 @@ public:
             const RowView y = to.row(i);
             copy(input(), x);
             forward();
-
-            for (size_type j = 0; j < to.cols(); ++j)
-            {
-                float d = output()(0, j) - y[j];
-                c += d * d;
-            }
+            c += loss_value(loss_, output(), y);
         }
 
         return c / static_cast<float>(n);
@@ -105,6 +110,7 @@ public:
 
     void backprop(const Matrix& ti, const Matrix& to, NN& g)
     {
+        check_shapes(ti, to);
         size_type n = ti.rows();
         size_type L = count_;
 
@@ -114,12 +120,16 @@ public:
             fill(g.bs_[l], 0.0f);
         }
 
-        std::vector<Matrix> dt;
+        std::vector<Matrix> dt;   // 各层误差项 dL/dz
+        std::vector<Matrix> da;   // 各层激活函数的导数 f'(a)
         dt.reserve(L + 1);
+        da.reserve(L + 1);
         dt.emplace_back();
+        da.emplace_back();
         for (size_type l = 1; l <= L; ++l)
         {
             dt.emplace_back(1, as_[l].cols());
+            da.emplace_back(1, as_[l].cols());
         }
 
         for (size_type sample = 0; sample < n; ++sample)
@@ -129,12 +139,11 @@ public:
             forward();
 
             const RowView y = to.row(sample);
+            loss_gradient(loss_, as_[L], y, dt[L]);
+            activation_derivative(output_activation_, as_[L], da[L]);
             for (size_type j = 0; j < as_[L].cols(); ++j)
             {
-                float out = as_[L](0, j);
-                float target = y[j];
-                float grad = 2.0f * (out - target) * out * (1.0f - out);
-                dt[L](0, j) = grad;
+                dt[L](0, j) *= da[L](0, j);
             }
 
             for (size_type l = L; l >= 1; --l)
@@ -156,6 +165,7 @@ public:
 
                 if (l > 1)
                 {
+                    activation_derivative(hidden_activation_, a_prev, da[l - 1]);
                     for (size_type i = 0; i < a_prev.cols(); ++i)
                     {
                         float s = 0.0f;
@@ -163,8 +173,7 @@ public:
                         {
                             s += d_cur(0, j) * ws_[l - 1](i, j);
                         }
-                        float a = a_prev(0, i);
-                        dt[l - 1](0, i) = s * a * (1.0f - a);
+                        dt[l - 1](0, i) = s * da[l - 1](0, i);
                     }
                 }
             }
@@ -188,6 +197,7 @@ public:
 
     void finite_diff(NN& g, float eps, const Matrix& ti, const Matrix& to)
     {
+        check_shapes(ti, to);
         float c = cost(ti, to);
 
         for (size_type i = 0; i < count_; ++i)
@@ -238,10 +248,29 @@ public:
     }
 
 private:
+    void check_shapes(const Matrix& ti, const Matrix& to) const
+    {
+        if (ti.cols() != input().cols())
+        {
+            throw std::invalid_argument("NN: training input width does not match network input");
+        }
+        if (to.cols() != output().cols())
+        {
+            throw std::invalid_argument("NN: training target width does not match network output");
+        }
+        if (ti.rows() != to.rows())
+        {
+            throw std::invalid_argument("NN: training input and target counts differ");
+        }
+    }
+
     size_type count_{0};
     std::vector<Matrix> ws_;
     std::vector<Matrix> bs_;
     std::vector<Matrix> as_;
+    ActivationType hidden_activation_{ActivationType::Sigmoid};
+    ActivationType output_activation_{ActivationType::Sigmoid};
+    LossType loss_{LossType::MeanSquaredError};
 };
 
 } // namespace nn
