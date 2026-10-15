@@ -50,13 +50,7 @@ int main()
 
     nn::Architecture arch{.inputs = 2, .hidden = {2}, .outputs = 1};
     nn::NN nn(arch);
-    nn.set_hidden_activation(nn::ActivationType::Relu);
-    nn.set_output_activation(nn::ActivationType::Sigmoid);
-    nn.set_loss(nn::LossType::MeanSquaredError);
     nn::NN g(arch);
-    g.set_hidden_activation(nn::ActivationType::Relu);
-    g.set_output_activation(nn::ActivationType::Sigmoid);
-    g.set_loss(nn::LossType::MeanSquaredError);
 
     nn.randomize(0, 1);
 
