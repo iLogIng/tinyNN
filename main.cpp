@@ -5,6 +5,7 @@
 #include <random>
 
 #include "NN.hpp"
+#include "Serialization.hpp"
 
 // 以线性代数运算为基础的 ML 框架模型
 
@@ -73,6 +74,8 @@ int main()
             std::cout << std::format("{} ^ {} = {:f}\n", i, j, y);
         }
     }
+
+    nn::save(nn, "trained.dat");
 
     return 0;
 }

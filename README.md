@@ -10,6 +10,7 @@
 - **架构配置**：`Architecture{inputs, hidden, outputs}` 描述网络结构。
 - **可替换激活/损失**：隐藏层与输出层激活分别可配（`Sigmoid`/`Tanh`/`Relu`），损失可选（`MSE`/`BinaryCrossEntropy`）。
 - **RAII**：`Matrix` 以 `std::vector<float>` 持有数据，`NN` 以 `std::vector<Matrix>` 持有各层，无需手动释放。
+- **持久化**：`Serialization.hpp` 提供 `save`/`load` 对训练数据进行保存。
 
 ## 目录结构
 
@@ -24,7 +25,8 @@
     ├── Activation.hpp    # 激活策略 Sigmoid/Tanh/Relu + 枚举分派
     ├── Loss.hpp          # 损失策略 MSE/BinaryCrossEntropy + 枚举分派
     ├── Matrix.hpp        # Matrix / RowView / 矩阵算子
-    └── NN.hpp            # NN 类（前向、代价、反向传播、有限差分、学习）
+    ├── NN.hpp            # NN 类（前向、代价、反向传播、有限差分、学习）
+    └── Serialization.hpp # save/load 与二进制格式
 ```
 
 ## 构建与运行
@@ -66,6 +68,36 @@ nn.forward();
 float y = nn.output()(0, 0);         // 读取输出
 ```
 
+## 持久化
+
+```cpp
+#include "Serialization.hpp"
+
+nn::save(nn, "model.tnn");        // 写文件
+nn::NN restored = nn::load("model.tnn");
+
+// 也可用内存缓冲：
+nn::Bytes bytes = nn::serialize(nn);
+nn::NN m2 = nn::deserialize(bytes);
+```
+
+文件格式（所有数值采用小端存储）：
+
+```
+u64  file_size                      # 整文件字节数（含自身）
+box 'META'
+    u16 version                     # 当前为 1
+    <dtype>                         # 'FP32' / 'FP16' / 'FP8 '（4 字节字符串）
+    box 'ARCH'
+        u32 inputs, u32 outputs, u32 hidden_count, u32 hidden[...]
+        <strategy> hidden_activation, output_activation, loss
+box 'WGHT'   f32[...]               # 按层拼接所有权重
+box 'BIAS'   f32[...]               # 按层拼接所有偏置
+```
+
+- `<strategy>` = `u8 长度 + ASCII 名称 + 奇数补 0`（名称如 `sigmoid`/`tanh`/`relu`/`mse`/`bce`）。
+- 张量形状由 `ARCH` 推导，数据块只存纯数值；未知 FourCC 块按 `size` 跳过，便于前向扩展。
+
 ## 说明
 
 - 默认激活为 `Sigmoid`（隐藏层与输出层），默认损失为 `MSE`；可通过 `set_hidden_activation`/`set_output_activation`/`set_loss` 更换。
@@ -73,5 +105,4 @@ float y = nn.output()(0, 0);         // 读取输出
 - `BinaryCrossEntropy` 期望输出层为 sigmoid。
 - `Architecture::from_sizes` 会校验尺寸（至少输入+输出且均大于 0），非法输入抛 `std::invalid_argument`；`cost`/`backprop`/`finite_diff` 会校验训练数据维度。
 - 矩阵的 `stride` 恒等于 `cols`，因此行连续，可用 `std::span` 表达。
-
 
