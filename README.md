@@ -105,7 +105,7 @@ flowchart LR
 
 ## 构建与运行
 
-> >=C++20  
+> \>=C++20  
 > GCC 13+ / Clang 17+  
 > CMake 3.20+
 
