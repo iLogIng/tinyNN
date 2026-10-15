@@ -106,3 +106,35 @@ box 'BIAS'   f32[...]               # 按层拼接所有偏置
 - `Architecture::from_sizes` 会校验尺寸（至少输入+输出且均大于 0），非法输入抛 `std::invalid_argument`；`cost`/`backprop`/`finite_diff` 会校验训练数据维度。
 - 矩阵的 `stride` 恒等于 `cols`，因此行连续，可用 `std::span` 表达。
 
+## 附录
+
+### 最初的持久化想法
+
+元信息部分
+```
+8byte   文件大小
+8byte   [size|META]
+4byte   FP32/FP16/FP8
+8byte   [size|ARCH]         类似于元信息块的子块 是网格的形状 input output hidden
+4byte   inputs_size
+4byte   outputs_size
+4byte...hidden_layer_size
+2byte   hide_activation     与output_activation一样，使用枚举值定义
+2byte   output_activation
+2byte   loss                同样适用枚举值定义
+```
+
+对于 hide_activation output_activation loss 另一种可能的存储方式是
+```
+2byte           size
+size byte       string(sigmoid/ralu/tanh/mse/bce)
+# 并严格按照 hide output loss 进行排列（三块）在产生奇数位置时 padding 为偶数，但是size大小仍是字符串大小，策略名恒为小/大写
+# size 应该是 2byte 还是 1byte 策略名称的长度应该不需要很长
+```
+
+数据部分
+```
+8byte   [size|WGHT/BIAS]
+type_size byte...
+```
+

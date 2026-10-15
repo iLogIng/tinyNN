@@ -4,6 +4,8 @@
 #include <iostream>
 #include <random>
 
+#include "Activation.hpp"
+#include "Loss.hpp"
 #include "NN.hpp"
 #include "Serialization.hpp"
 
@@ -17,6 +19,7 @@ constexpr float RATE = 5e-1f;
 
 using Sample = std::array<float, 3>;
 
+[[maybe_unused]]
 constexpr std::array<Sample, 4> td_xor = {{{0, 0, 0}, {0, 1, 1}, {1, 0, 1}, {1, 1, 0}}};
 
 [[maybe_unused]]
@@ -47,7 +50,13 @@ int main()
 
     nn::Architecture arch{.inputs = 2, .hidden = {2}, .outputs = 1};
     nn::NN nn(arch);
+    nn.set_hidden_activation(nn::ActivationType::Relu);
+    nn.set_output_activation(nn::ActivationType::Sigmoid);
+    nn.set_loss(nn::LossType::MeanSquaredError);
     nn::NN g(arch);
+    g.set_hidden_activation(nn::ActivationType::Relu);
+    g.set_output_activation(nn::ActivationType::Sigmoid);
+    g.set_loss(nn::LossType::MeanSquaredError);
 
     nn.randomize(0, 1);
 
