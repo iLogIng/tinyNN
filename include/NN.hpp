@@ -51,6 +51,13 @@ public:
     const Matrix& input() const { return as_[0]; }
     const Matrix& output() const { return as_[count_]; }
 
+    Matrix& weights(size_type i) { return ws_[i]; }
+    const Matrix& weights(size_type i) const { return ws_[i]; }
+    Matrix& biases(size_type i) { return bs_[i]; }
+    const Matrix& biases(size_type i) const { return bs_[i]; }
+    Matrix& activations(size_type i) { return as_[i]; }
+    const Matrix& activations(size_type i) const { return as_[i]; }
+
     void set_hidden_activation(ActivationType type) noexcept { hidden_activation_ = type; }
     void set_output_activation(ActivationType type) noexcept { output_activation_ = type; }
     void set_loss(LossType type) noexcept { loss_ = type; }
