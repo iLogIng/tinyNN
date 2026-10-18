@@ -4,7 +4,7 @@
 #include <iostream>
 #include <random>
 
-#include "Activation.hpp"
+#include "Architecture.hpp"
 #include "Loss.hpp"
 #include "NN.hpp"
 #include "Serialization.hpp"
@@ -48,7 +48,7 @@ int main()
         to(i, 0) = td[i][2];
     }
 
-    nn::Architecture arch{.inputs = 2, .hidden = {2}, .outputs = 1};
+    nn::Architecture arch{.inputs = 2, .hidden = {3, 4, 2}, .outputs = 1};
     nn::NN nn(arch);
     nn::NN g(arch);
 
