@@ -181,6 +181,12 @@ box 'BIAS'   f32[...]               # 按层拼接所有偏置
 - `<strategy>` = `u8 长度 + ASCII 名称 + 奇数补 0`（名称如 `sigmoid`/`tanh`/`relu`/`mse`/`bce`）。
 - 张量形状由 `ARCH` 推导，数据块只存纯数值；未知 FourCC 块按 `size` 跳过，便于前向扩展。
 
+## 训练案例
+
+> 在 example 目录下
+
+
+
 ## 说明
 
 - 默认激活为 `Sigmoid`（隐藏层与输出层），默认损失为 `MSE`；可通过 `set_hidden_activation`/`set_output_activation`/`set_loss` 更换。

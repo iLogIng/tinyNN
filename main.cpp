@@ -5,7 +5,6 @@
 #include <random>
 
 #include "Architecture.hpp"
-#include "Loss.hpp"
 #include "NN.hpp"
 #include "Serialization.hpp"
 
