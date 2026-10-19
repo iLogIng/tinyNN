@@ -135,6 +135,14 @@ inline void sum(Matrix& dst, const Matrix& a)
     std::transform(dst.begin(), dst.end(), a.begin(), dst.begin(), std::plus<float>{});
 }
 
+inline void multiply(Matrix& dst, const Matrix& a)
+{
+    assert(dst.rows() == a.rows());
+    assert(dst.cols() == a.cols());
+    std::transform(dst.begin(), dst.end(), a.begin(), dst.begin(),
+        [](float x, float y) { return x * y; });
+}
+
 inline void print(const Matrix& m, std::string_view name, std::size_t padding = 0)
 {
     const std::string pad(padding, ' ');

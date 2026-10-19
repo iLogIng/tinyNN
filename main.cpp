@@ -1,10 +1,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <iostream>
 #include <random>
 
 #include "Architecture.hpp"
+#include "Initialization.hpp"
 #include "NN.hpp"
 #include "Serialization.hpp"
 
@@ -13,8 +15,7 @@
 namespace
 {
 
-constexpr float EPS = 1e-3f;
-constexpr float RATE = 5e-1f;
+constexpr float RATE = 3e-1f;
 
 using Sample = std::array<float, 3>;
 
@@ -47,20 +48,40 @@ int main()
         to(i, 0) = td[i][2];
     }
 
-    nn::Architecture arch{.inputs = 2, .hidden = {3, 4, 2}, .outputs = 1};
+    nn::Architecture arch{.inputs = 2, .hidden = {4}, .outputs = 1};
     nn::NN nn(arch);
     nn::NN g(arch);
 
-    nn.randomize(0, 1);
+    // Xavier 初始化
+    nn.initialize(nn::InitType::XavierUniform);
+
+    // 权重衰减 与 dropout
+    nn.set_weight_decay(1e-4f);
+    nn.set_dropout(0.2f);
+    nn.set_training(true);
+
+    auto eval_cost = [&] {
+        nn.set_training(false);
+        const float c = nn.cost(ti, to);
+        nn.set_training(true);
+        return c;
+    };
 
     for (std::size_t i = 0; i < 1'000'000; ++i)
     {
-        nn.finite_diff(g, EPS, ti, to);
+        nn.backprop(ti, to, g);
         nn.learn(g, RATE);
-        std::cout << std::format("cost = {:f}\n", nn.cost(ti, to));
+
+        if (i % 50'000 == 0)
+        {
+            std::cout << std::format("iter {:>6}  cost = {:f}\n", i, eval_cost());
+        }
     }
 
+    nn.set_training(false);
+
     std::cout << "------------------------------------\n";
+    std::cout << std::format("final cost = {:f}\n", nn.cost(ti, to));
     nn.print("nn");
     g.print("g");
     std::cout << "------------------------------------\n";

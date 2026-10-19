@@ -5,12 +5,14 @@
 #include <format>
 #include <initializer_list>
 #include <iostream>
+#include <random>
 #include <stdexcept>
 #include <string_view>
 #include <vector>
 
 #include "Activation.hpp"
 #include "Architecture.hpp"
+#include "Initialization.hpp"
 #include "Loss.hpp"
 #include "Matrix.hpp"
 
@@ -66,6 +68,39 @@ public:
     ActivationType output_activation() const noexcept { return output_activation_; }
     LossType loss() const noexcept { return loss_; }
 
+    void set_weight_decay(float value)
+    {
+        if (value < 0.0f)
+        {
+            throw std::invalid_argument("NN: weight_decay must be >= 0");
+        }
+        weight_decay_ = value;
+    }
+    float weight_decay() const noexcept { return weight_decay_; }
+
+    void set_dropout(float probability)
+    {
+        if (probability < 0.0f || probability >= 1.0f)
+        {
+            throw std::invalid_argument("NN: dropout must be in [0, 1)");
+        }
+        dropout_ = probability;
+    }
+    float dropout() const noexcept { return dropout_; }
+
+    void set_training(bool on) noexcept { training_ = on; }
+    bool training() const noexcept { return training_; }
+
+    /* Xavier 初始化：权重按类型初始化，偏置置 0 */
+    void initialize(InitType type)
+    {
+        for (size_type i = 0; i < count_; ++i)
+        {
+            nn::initialize(ws_[i], type);
+            fill(bs_[i], 0.0f);
+        }
+    }
+
     void randomize(float low, float high)
     {
         for (size_type i = 0; i < count_; ++i)
@@ -88,12 +123,33 @@ public:
 
     void forward()
     {
+        const bool drop = training_ && dropout_ > 0.0f;
+        if (drop)
+        {
+            ensure_dropout_storage();
+        }
+
         for (size_type i = 0; i < count_; ++i)
         {
             dot(as_[i + 1], as_[i], ws_[i]);
             sum(as_[i + 1], bs_[i]);
             const ActivationType act = (i + 1 == count_) ? output_activation_ : hidden_activation_;
             activation_forward(act, as_[i + 1]);
+
+            if (drop && i + 1 < count_)
+            {
+                const size_type l = i + 1;   // hidden layer
+                copy(pre_dropout_act_[l], as_[l]);
+
+                std::bernoulli_distribution keep(1.0 - static_cast<double>(dropout_));
+                std::mt19937& gen = rng();
+                const float scale = 1.0f / (1.0f - dropout_);
+                for (size_type j = 0; j < as_[l].cols(); ++j)
+                {
+                    dropout_mask_[l](0, j) = keep(gen) ? scale : 0.0f;
+                }
+                multiply(as_[l], dropout_mask_[l]);
+            }
         }
     }
 
@@ -112,12 +168,31 @@ public:
             c += loss_value(loss_, output(), y);
         }
 
-        return c / static_cast<float>(n);
+        float reg = 0.0f;
+        if (weight_decay_ > 0.0f)
+        {
+            for (size_type l = 0; l < count_; ++l)
+            {
+                for (size_type i = 0; i < ws_[l].rows(); ++i)
+                {
+                    for (size_type j = 0; j < ws_[l].cols(); ++j)
+                    {
+                        reg += ws_[l](i, j) * ws_[l](i, j);
+                    }
+                }
+            }
+        }
+
+        return c / static_cast<float>(n) + 0.5f * weight_decay_ * reg;
     }
 
     void backprop(const Matrix& ti, const Matrix& to, NN& g)
     {
         check_shapes(ti, to);
+        if (dropout_ > 0.0f && !training_)
+        {
+            throw std::invalid_argument("NN: backprop with dropout requires training mode");
+        }
         size_type n = ti.rows();
         size_type L = count_;
 
@@ -172,7 +247,9 @@ public:
 
                 if (l > 1)
                 {
-                    activation_derivative(hidden_activation_, a_prev, da[l - 1]);
+                    const bool drop = training_ && dropout_ > 0.0f;
+                    const Matrix& act = drop ? pre_dropout_act_[l - 1] : a_prev;
+                    activation_derivative(hidden_activation_, act, da[l - 1]);
                     for (size_type i = 0; i < a_prev.cols(); ++i)
                     {
                         float s = 0.0f;
@@ -180,24 +257,30 @@ public:
                         {
                             s += d_cur(0, j) * ws_[l - 1](i, j);
                         }
-                        dt[l - 1](0, i) = s * da[l - 1](0, i);
+                        float deriv = da[l - 1](0, i);
+                        if (drop)
+                        {
+                            deriv *= dropout_mask_[l - 1](0, i);
+                        }
+                        dt[l - 1](0, i) = s * deriv;
                     }
                 }
             }
         }
 
+        const float inv_n = 1.0f / static_cast<float>(n);
         for (size_type l = 0; l < L; ++l)
         {
             for (size_type i = 0; i < ws_[l].rows(); ++i)
             {
                 for (size_type j = 0; j < ws_[l].cols(); ++j)
                 {
-                    g.ws_[l](i, j) /= static_cast<float>(n);
+                    g.ws_[l](i, j) = g.ws_[l](i, j) * inv_n + weight_decay_ * ws_[l](i, j);
                 }
             }
             for (size_type j = 0; j < bs_[l].cols(); ++j)
             {
-                g.bs_[l](0, j) /= static_cast<float>(n);
+                g.bs_[l](0, j) *= inv_n;
             }
         }
     }
@@ -205,6 +288,10 @@ public:
     void finite_diff(NN& g, float eps, const Matrix& ti, const Matrix& to)
     {
         check_shapes(ti, to);
+        if (dropout_ > 0.0f)
+        {
+            throw std::invalid_argument("NN: finite_diff does not support dropout; use backprop");
+        }
         float c = cost(ti, to);
 
         for (size_type i = 0; i < count_; ++i)
@@ -271,6 +358,21 @@ private:
         }
     }
 
+    void ensure_dropout_storage()
+    {
+        if (dropout_mask_.size() == count_ + 1)
+        {
+            return;
+        }
+        dropout_mask_.assign(count_ + 1, Matrix());
+        pre_dropout_act_.assign(count_ + 1, Matrix());
+        for (size_type l = 1; l < count_; ++l)
+        {
+            dropout_mask_[l] = Matrix(1, as_[l].cols());
+            pre_dropout_act_[l] = Matrix(1, as_[l].cols());
+        }
+    }
+
     size_type count_{0};
     std::vector<Matrix> ws_;
     std::vector<Matrix> bs_;
@@ -278,6 +380,11 @@ private:
     ActivationType hidden_activation_{ActivationType::Sigmoid};
     ActivationType output_activation_{ActivationType::Sigmoid};
     LossType loss_{LossType::MeanSquaredError};
+    float weight_decay_{0.0f};
+    float dropout_{0.0f};
+    bool training_{false};
+    std::vector<Matrix> dropout_mask_;
+    std::vector<Matrix> pre_dropout_act_;
 };
 
 } // namespace nn
